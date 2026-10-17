@@ -70,6 +70,29 @@ func TestDefaultStoreSettingsStartsWithoutDeliveryZones(t *testing.T) {
 	}
 }
 
+func TestDefaultBottleCatalogStartsUnavailableAndUnpriced(t *testing.T) {
+	settings := DefaultStoreSettings()
+	if settings.BottleCatalog.Enabled || settings.BottleCatalog.Price300Cents != 0 || settings.BottleCatalog.Price500Cents != 0 {
+		t.Fatalf("expected bottle catalog to start unavailable and unpriced, got %+v", settings.BottleCatalog)
+	}
+	if len(settings.BottleCatalog.Extras) != 3 {
+		t.Fatalf("expected three optional bottle extras, got %+v", settings.BottleCatalog.Extras)
+	}
+}
+
+func TestValidateStoreSettingsRequiresBottlePricesWhenEnabled(t *testing.T) {
+	settings := DefaultStoreSettings()
+	settings.BottleCatalog.Enabled = true
+	settings.BottleCatalog.Price300Cents = 1500
+	if ValidateStoreSettings(settings) == nil {
+		t.Fatal("expected enabled bottle catalog without both sizes priced to be rejected")
+	}
+	settings.BottleCatalog.Price500Cents = 2200
+	if err := ValidateStoreSettings(settings); err != nil {
+		t.Fatalf("expected enabled bottle catalog with both sizes priced, got %v", err)
+	}
+}
+
 func TestFindDeliveryZoneRejectsDisabledAndUnknownNeighborhoods(t *testing.T) {
 	settings := DefaultStoreSettings()
 	settings.DeliveryZones = []DeliveryZone{{

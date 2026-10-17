@@ -34,6 +34,20 @@ type DeliveryZone struct {
 	Enabled       bool     `json:"enabled"`
 }
 
+type BottleExtraSetting struct {
+	Key        string `json:"key"`
+	Name       string `json:"name"`
+	PriceCents int    `json:"priceCents"`
+	Enabled    bool   `json:"enabled"`
+}
+
+type BottleCatalogSettings struct {
+	Enabled       bool                 `json:"enabled"`
+	Price300Cents int                  `json:"price300Cents"`
+	Price500Cents int                  `json:"price500Cents"`
+	Extras        []BottleExtraSetting `json:"extras"`
+}
+
 type StoreSettings struct {
 	WeeklyHours           map[string]OperatingHours `json:"weeklyHours"`
 	Story                 StoreStory                `json:"story"`
@@ -41,6 +55,7 @@ type StoreSettings struct {
 	ManualOverride        *bool                     `json:"manualOverride"`
 	DeliveryOriginAddress string                    `json:"deliveryOriginAddress"`
 	DeliveryZones         []DeliveryZone            `json:"deliveryZones"`
+	BottleCatalog         BottleCatalogSettings     `json:"bottleCatalog"`
 }
 
 type StoreStatus struct {
@@ -104,9 +119,16 @@ func DefaultStoreSettings() StoreSettings {
 			Title: "Um intervalo gostoso muda o dia.",
 			Body:  "Açaí de verdade, feito com carinho em cada pedido.",
 		},
-		WhatsAppNumber:        "5521990174473",
+		WhatsAppNumber:        "5521984848283",
 		DeliveryOriginAddress: DeliveryOrigin,
 		DeliveryZones:         []DeliveryZone{},
+		BottleCatalog: BottleCatalogSettings{
+			Extras: []BottleExtraSetting{
+				{Key: "leite-condensado", Name: "Leite condensado"},
+				{Key: "doce-de-leite", Name: "Doce de leite"},
+				{Key: "creme-de-avela", Name: "Creme de avelã"},
+			},
+		},
 	}
 }
 
@@ -125,6 +147,23 @@ func ValidateStoreSettings(settings StoreSettings) error {
 	}
 	if strings.TrimSpace(settings.DeliveryOriginAddress) == "" || len(settings.DeliveryOriginAddress) > 200 || len(settings.DeliveryZones) > 50 {
 		return ErrInvalidStoreSettings
+	}
+	if settings.BottleCatalog.Price300Cents < 0 || settings.BottleCatalog.Price500Cents < 0 ||
+		settings.BottleCatalog.Price300Cents > 100_000 || settings.BottleCatalog.Price500Cents > 100_000 ||
+		(settings.BottleCatalog.Enabled && (settings.BottleCatalog.Price300Cents == 0 || settings.BottleCatalog.Price500Cents == 0)) ||
+		len(settings.BottleCatalog.Extras) != 3 {
+		return ErrInvalidStoreSettings
+	}
+	bottleExtraKeys := make(map[string]struct{}, len(settings.BottleCatalog.Extras))
+	for _, extra := range settings.BottleCatalog.Extras {
+		key := strings.TrimSpace(extra.Key)
+		if key == "" || strings.TrimSpace(extra.Name) == "" || len(extra.Name) > 80 || extra.PriceCents < 0 || extra.PriceCents > 100_000 {
+			return ErrInvalidStoreSettings
+		}
+		if _, exists := bottleExtraKeys[key]; exists {
+			return ErrInvalidStoreSettings
+		}
+		bottleExtraKeys[key] = struct{}{}
 	}
 	zoneNames := make(map[string]struct{}, len(settings.DeliveryZones))
 	neighborhoods := make(map[string]struct{})

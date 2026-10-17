@@ -71,6 +71,28 @@ func (service *Service) Create(ctx context.Context, request CreateOrderRequest) 
 	if !status.IsOpen {
 		return CreatedOrder{}, domain.ErrStoreClosed
 	}
+	needsBottleCatalog := request.Acai.BottleID != ""
+	for _, item := range request.Items {
+		needsBottleCatalog = needsBottleCatalog || item.Acai.BottleID != ""
+	}
+	bottleSizes := CatalogData{}
+	if needsBottleCatalog {
+		if len(request.Items) == 0 {
+			if err := validateBottleOrder(request.Acai, status.Settings.BottleCatalog); err != nil {
+				return CreatedOrder{}, err
+			}
+		} else {
+			for _, item := range request.Items {
+				if err := validateBottleOrder(item.Acai, status.Settings.BottleCatalog); err != nil {
+					return CreatedOrder{}, err
+				}
+			}
+		}
+		bottleSizes, err = service.repository.Catalog(ctx)
+		if err != nil {
+			return CreatedOrder{}, err
+		}
+	}
 	zone, covered := domain.FindDeliveryZone(status.Settings, request.Delivery.Neighborhood)
 	if !covered {
 		return CreatedOrder{}, domain.ErrDeliveryAreaUnavailable
@@ -79,10 +101,25 @@ func (service *Service) Create(ctx context.Context, request CreateOrderRequest) 
 	request.Delivery.DeliveryFeeCents = zone.FeeCents
 	if len(request.Items) > 0 {
 		itemsSubtotalCents := 0
-		for _, item := range request.Items {
+		for index, item := range request.Items {
+			if item.Acai.BottleID != "" {
+				bottlePrice, err := calculateBottleOrderPrice(item.Acai, status.Settings.BottleCatalog, bottleSizes.Items)
+				if err != nil {
+					return CreatedOrder{}, err
+				}
+				request.Items[index].EstimatedSubtotalCents = bottlePrice
+				itemsSubtotalCents += bottlePrice
+				continue
+			}
 			itemsSubtotalCents += item.EstimatedSubtotalCents
 		}
 		request.EstimatedTotalCents = itemsSubtotalCents + zone.FeeCents
+	} else if request.Acai.BottleID != "" {
+		bottlePrice, err := calculateBottleOrderPrice(request.Acai, status.Settings.BottleCatalog, bottleSizes.Items)
+		if err != nil {
+			return CreatedOrder{}, err
+		}
+		request.EstimatedTotalCents = bottlePrice + zone.FeeCents
 	}
 	created, err := service.repository.Create(ctx, request)
 	if err != nil {
@@ -94,10 +131,70 @@ func (service *Service) Create(ctx context.Context, request CreateOrderRequest) 
 	return created, nil
 }
 
+func validateBottleOrder(acai OrderAcai, settings domain.BottleCatalogSettings) error {
+	if acai.BottleID == "" {
+		return nil
+	}
+	if acai.BottleID != "bottle-acai" || !settings.Enabled || acai.ComboID != "" || acai.GourmetID != "" ||
+		len(acai.ToppingIDs) > 0 || len(acai.FruitIDs) > 0 {
+		return ErrInvalidInput
+	}
+
+	availableExtras := make(map[string]struct{}, len(settings.Extras))
+	for _, extra := range settings.Extras {
+		if extra.Enabled {
+			availableExtras[extra.Key] = struct{}{}
+		}
+	}
+	for _, extraID := range acai.ExtraIDs {
+		if _, enabled := availableExtras[extraID]; !enabled {
+			return ErrInvalidInput
+		}
+	}
+	return nil
+}
+
+func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSettings, catalogItems []CatalogItemRecord) (int, error) {
+	if err := validateBottleOrder(acai, settings); err != nil {
+		return 0, err
+	}
+
+	sizeName := ""
+	for _, item := range catalogItems {
+		if item.ID == acai.SizeID && item.Kind == string(domain.CatalogSize) && item.Available && item.DeletedAt == nil {
+			sizeName = strings.ToLower(strings.TrimSpace(item.Name))
+			break
+		}
+	}
+
+	var total int
+	switch sizeName {
+	case "300 ml":
+		total = settings.Price300Cents
+	case "500 ml":
+		total = settings.Price500Cents
+	default:
+		return 0, ErrInvalidInput
+	}
+
+	for _, extraID := range acai.ExtraIDs {
+		for _, extra := range settings.Extras {
+			if extra.Key == extraID && extra.Enabled {
+				total += extra.PriceCents
+				break
+			}
+		}
+	}
+	return total, nil
+}
+
 func (service *Service) StoreSettings(ctx context.Context) (domain.StoreSettings, error) {
 	settings, err := service.repository.StoreSettings(ctx)
 	if err != nil {
 		return domain.StoreSettings{}, err
+	}
+	if settings.BottleCatalog.Extras == nil {
+		settings.BottleCatalog = domain.DefaultStoreSettings().BottleCatalog
 	}
 	if err := domain.ValidateStoreSettings(settings); err != nil {
 		return domain.StoreSettings{}, err
@@ -120,6 +217,13 @@ func (service *Service) UpdateStoreSettings(ctx context.Context, settings domain
 	}
 	if settings.DeliveryZones == nil {
 		settings.DeliveryZones = []domain.DeliveryZone{}
+	}
+	if settings.BottleCatalog.Extras == nil {
+		current, err := service.StoreSettings(ctx)
+		if err != nil {
+			return err
+		}
+		settings.BottleCatalog = current.BottleCatalog
 	}
 	if err := domain.ValidateStoreSettings(settings); err != nil {
 		return err

@@ -38,6 +38,7 @@ type OrderAcai struct {
 	CondimentPositionID string   `json:"condimentPositionId"`
 	FruitIDs            []string `json:"fruitIds"`
 	ExtraIDs            []string `json:"extraIds"`
+	BottleID            string   `json:"bottleId"`
 }
 
 type OrderDelivery struct {
