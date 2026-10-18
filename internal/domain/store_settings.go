@@ -41,11 +41,20 @@ type BottleExtraSetting struct {
 	Enabled    bool   `json:"enabled"`
 }
 
+type BottleProductSetting struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Enabled       bool   `json:"enabled"`
+	Price300Cents int    `json:"price300Cents"`
+	Price500Cents int    `json:"price500Cents"`
+}
+
 type BottleCatalogSettings struct {
-	Enabled       bool                 `json:"enabled"`
-	Price300Cents int                  `json:"price300Cents"`
-	Price500Cents int                  `json:"price500Cents"`
-	Extras        []BottleExtraSetting `json:"extras"`
+	Enabled       bool                   `json:"enabled"`
+	Price300Cents int                    `json:"price300Cents"`
+	Price500Cents int                    `json:"price500Cents"`
+	Bottles       []BottleProductSetting `json:"bottles"`
+	Extras        []BottleExtraSetting   `json:"extras"`
 }
 
 type StoreSettings struct {
@@ -104,6 +113,22 @@ func FindDeliveryZone(settings StoreSettings, neighborhood string) (DeliveryZone
 	return DeliveryZone{}, false
 }
 
+func BottleProducts(settings BottleCatalogSettings) []BottleProductSetting {
+	if len(settings.Bottles) > 0 {
+		return settings.Bottles
+	}
+	if settings.Enabled || settings.Price300Cents > 0 || settings.Price500Cents > 0 {
+		return []BottleProductSetting{{
+			ID:            "bottle-acai",
+			Name:          "Açaí na Garrafa",
+			Enabled:       settings.Enabled,
+			Price300Cents: settings.Price300Cents,
+			Price500Cents: settings.Price500Cents,
+		}}
+	}
+	return []BottleProductSetting{}
+}
+
 func DefaultStoreSettings() StoreSettings {
 	return StoreSettings{
 		WeeklyHours: map[string]OperatingHours{
@@ -123,6 +148,7 @@ func DefaultStoreSettings() StoreSettings {
 		DeliveryOriginAddress: DeliveryOrigin,
 		DeliveryZones:         []DeliveryZone{},
 		BottleCatalog: BottleCatalogSettings{
+			Bottles: []BottleProductSetting{},
 			Extras: []BottleExtraSetting{
 				{Key: "leite-condensado", Name: "Leite condensado"},
 				{Key: "doce-de-leite", Name: "Doce de leite"},
@@ -150,9 +176,23 @@ func ValidateStoreSettings(settings StoreSettings) error {
 	}
 	if settings.BottleCatalog.Price300Cents < 0 || settings.BottleCatalog.Price500Cents < 0 ||
 		settings.BottleCatalog.Price300Cents > 100_000 || settings.BottleCatalog.Price500Cents > 100_000 ||
-		(settings.BottleCatalog.Enabled && (settings.BottleCatalog.Price300Cents == 0 || settings.BottleCatalog.Price500Cents == 0)) ||
+		(len(settings.BottleCatalog.Bottles) == 0 && settings.BottleCatalog.Enabled && (settings.BottleCatalog.Price300Cents == 0 || settings.BottleCatalog.Price500Cents == 0)) ||
+		len(settings.BottleCatalog.Bottles) > 50 ||
 		len(settings.BottleCatalog.Extras) != 3 {
 		return ErrInvalidStoreSettings
+	}
+	bottleIDs := make(map[string]struct{}, len(settings.BottleCatalog.Bottles))
+	for _, bottle := range settings.BottleCatalog.Bottles {
+		id := strings.TrimSpace(bottle.ID)
+		if id == "" || len(id) > 100 || strings.TrimSpace(bottle.Name) == "" || len(bottle.Name) > 80 ||
+			bottle.Price300Cents < 0 || bottle.Price300Cents > 100_000 || bottle.Price500Cents < 0 || bottle.Price500Cents > 100_000 ||
+			(bottle.Enabled && (bottle.Price300Cents == 0 || bottle.Price500Cents == 0)) {
+			return ErrInvalidStoreSettings
+		}
+		if _, exists := bottleIDs[id]; exists {
+			return ErrInvalidStoreSettings
+		}
+		bottleIDs[id] = struct{}{}
 	}
 	bottleExtraKeys := make(map[string]struct{}, len(settings.BottleCatalog.Extras))
 	for _, extra := range settings.BottleCatalog.Extras {

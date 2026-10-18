@@ -135,7 +135,14 @@ func validateBottleOrder(acai OrderAcai, settings domain.BottleCatalogSettings) 
 	if acai.BottleID == "" {
 		return nil
 	}
-	if acai.BottleID != "bottle-acai" || !settings.Enabled || acai.ComboID != "" || acai.GourmetID != "" ||
+	var bottle domain.BottleProductSetting
+	for _, product := range domain.BottleProducts(settings) {
+		if product.ID == acai.BottleID {
+			bottle = product
+			break
+		}
+	}
+	if bottle.ID == "" || !bottle.Enabled || acai.ComboID != "" || acai.GourmetID != "" ||
 		len(acai.ToppingIDs) > 0 || len(acai.FruitIDs) > 0 {
 		return ErrInvalidInput
 	}
@@ -150,6 +157,7 @@ func validateBottleOrder(acai OrderAcai, settings domain.BottleCatalogSettings) 
 		if _, enabled := availableExtras[extraID]; !enabled {
 			return ErrInvalidInput
 		}
+		delete(availableExtras, extraID)
 	}
 	return nil
 }
@@ -157,6 +165,13 @@ func validateBottleOrder(acai OrderAcai, settings domain.BottleCatalogSettings) 
 func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSettings, catalogItems []CatalogItemRecord) (int, error) {
 	if err := validateBottleOrder(acai, settings); err != nil {
 		return 0, err
+	}
+	var bottle domain.BottleProductSetting
+	for _, product := range domain.BottleProducts(settings) {
+		if product.ID == acai.BottleID {
+			bottle = product
+			break
+		}
 	}
 
 	sizeName := ""
@@ -170,9 +185,9 @@ func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSett
 	var total int
 	switch sizeName {
 	case "300 ml":
-		total = settings.Price300Cents
+		total = bottle.Price300Cents
 	case "500 ml":
-		total = settings.Price500Cents
+		total = bottle.Price500Cents
 	default:
 		return 0, ErrInvalidInput
 	}

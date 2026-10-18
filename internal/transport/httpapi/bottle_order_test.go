@@ -58,6 +58,38 @@ func TestCreateBottleOrderAllowsOnlyEnabledBottleAndExtras(t *testing.T) {
 	}
 }
 
+func TestCreateBottleOrderUsesConfiguredProductPrice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newBottleOrderStore(true, true)
+	store.settings.BottleCatalog.Enabled = false
+	store.settings.BottleCatalog.Price300Cents = 0
+	store.settings.BottleCatalog.Price500Cents = 0
+	store.settings.BottleCatalog.Bottles = []domain.BottleProductSetting{
+		{ID: "bottle-morango", Name: "Morango na Garrafa", Enabled: true, Price300Cents: 2100, Price500Cents: 2900},
+	}
+	store.catalog.Items = []catalogItemRecord{{
+		ID: "size-300", Kind: string(domain.CatalogSize), Name: "300 ml", Available: true,
+	}}
+	requestBody := strings.Replace(
+		bottleOrderRequest("leite-condensado"),
+		`"bottleId":"bottle-acai"`,
+		`"bottleId":"bottle-morango"`,
+		1,
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	newRouter(store).ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted || !store.called {
+		t.Fatalf("expected configured bottle product to be accepted, got status %d: %s", response.Code, response.Body.String())
+	}
+	if store.order.EstimatedTotalCents != 2650 {
+		t.Fatalf("expected selected bottle price + extra + delivery fee to equal 2650 cents, got %d", store.order.EstimatedTotalCents)
+	}
+}
+
 func TestCreateBottleOrderRejectsDisabledBottleAndExtra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
@@ -82,5 +114,25 @@ func TestCreateBottleOrderRejectsDisabledBottleAndExtra(t *testing.T) {
 				t.Fatalf("expected disabled bottle choice to be rejected before persistence, got status %d", response.Code)
 			}
 		})
+	}
+}
+
+func TestCreateBottleOrderRejectsDuplicateExtras(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newBottleOrderStore(true, true)
+	requestBody := strings.Replace(
+		bottleOrderRequest("leite-condensado"),
+		`"extraIds":["leite-condensado"]`,
+		`"extraIds":["leite-condensado","leite-condensado"]`,
+		1,
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	newRouter(store).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest || store.called {
+		t.Fatalf("expected duplicate bottle extra to be rejected before persistence, got status %d", response.Code)
 	}
 }

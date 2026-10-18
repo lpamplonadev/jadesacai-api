@@ -63,7 +63,6 @@ func TestValidateStoreSettingsRejectsInvalidHoursAndWhatsAppNumber(t *testing.T)
 	}
 }
 
-
 func TestDefaultStoreSettingsStartsWithoutDeliveryZones(t *testing.T) {
 	if zones := DefaultStoreSettings().DeliveryZones; zones == nil || len(zones) != 0 {
 		t.Fatalf("expected delivery zones to start empty, got %+v", zones)
@@ -77,6 +76,22 @@ func TestDefaultBottleCatalogStartsUnavailableAndUnpriced(t *testing.T) {
 	}
 	if len(settings.BottleCatalog.Extras) != 3 {
 		t.Fatalf("expected three optional bottle extras, got %+v", settings.BottleCatalog.Extras)
+	}
+}
+
+func TestBottleProductsSupportsLegacySettingsAndConfiguredProducts(t *testing.T) {
+	legacy := BottleCatalogSettings{Enabled: true, Price300Cents: 1500, Price500Cents: 2200}
+	products := BottleProducts(legacy)
+	if len(products) != 1 || products[0].ID != "bottle-acai" || !products[0].Enabled || products[0].Price300Cents != 1500 {
+		t.Fatalf("expected legacy bottle settings to map to the original product, got %+v", products)
+	}
+
+	configured := BottleCatalogSettings{Bottles: []BottleProductSetting{{
+		ID: "bottle-morango", Name: "Morango na Garrafa", Enabled: true, Price300Cents: 2100, Price500Cents: 2900,
+	}}}
+	products = BottleProducts(configured)
+	if len(products) != 1 || products[0].ID != "bottle-morango" || products[0].Price500Cents != 2900 {
+		t.Fatalf("expected configured bottle products to take precedence, got %+v", products)
 	}
 }
 
