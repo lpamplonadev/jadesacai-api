@@ -75,7 +75,6 @@ func (service *Service) Create(ctx context.Context, request CreateOrderRequest) 
 	for _, item := range request.Items {
 		needsBottleCatalog = needsBottleCatalog || item.Acai.BottleID != ""
 	}
-	bottleSizes := CatalogData{}
 	if needsBottleCatalog {
 		if len(request.Items) == 0 {
 			if err := validateBottleOrder(request.Acai, status.Settings.BottleCatalog); err != nil {
@@ -88,10 +87,6 @@ func (service *Service) Create(ctx context.Context, request CreateOrderRequest) 
 				}
 			}
 		}
-		bottleSizes, err = service.repository.Catalog(ctx)
-		if err != nil {
-			return CreatedOrder{}, err
-		}
 	}
 	zone, covered := domain.FindDeliveryZone(status.Settings, request.Delivery.Neighborhood)
 	if !covered {
@@ -103,7 +98,7 @@ func (service *Service) Create(ctx context.Context, request CreateOrderRequest) 
 		itemsSubtotalCents := 0
 		for index, item := range request.Items {
 			if item.Acai.BottleID != "" {
-				bottlePrice, err := calculateBottleOrderPrice(item.Acai, status.Settings.BottleCatalog, bottleSizes.Items)
+				bottlePrice, err := calculateBottleOrderPrice(item.Acai, status.Settings.BottleCatalog)
 				if err != nil {
 					return CreatedOrder{}, err
 				}
@@ -115,7 +110,7 @@ func (service *Service) Create(ctx context.Context, request CreateOrderRequest) 
 		}
 		request.EstimatedTotalCents = itemsSubtotalCents + zone.FeeCents
 	} else if request.Acai.BottleID != "" {
-		bottlePrice, err := calculateBottleOrderPrice(request.Acai, status.Settings.BottleCatalog, bottleSizes.Items)
+		bottlePrice, err := calculateBottleOrderPrice(request.Acai, status.Settings.BottleCatalog)
 		if err != nil {
 			return CreatedOrder{}, err
 		}
@@ -162,7 +157,7 @@ func validateBottleOrder(acai OrderAcai, settings domain.BottleCatalogSettings) 
 	return nil
 }
 
-func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSettings, catalogItems []CatalogItemRecord) (int, error) {
+func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSettings) (int, error) {
 	if err := validateBottleOrder(acai, settings); err != nil {
 		return 0, err
 	}
@@ -174,25 +169,14 @@ func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSett
 		}
 	}
 
-	sizeName := ""
-	for _, item := range catalogItems {
-		if item.ID == acai.SizeID && item.Kind == string(domain.CatalogSize) && item.Available && item.DeletedAt == nil {
-			sizeName = strings.ToLower(strings.Join(strings.Fields(item.Name), " "))
-			if sizeName == "300ml" || sizeName == "500ml" {
-				sizeName = sizeName[:3] + " ml"
-			}
-			break
-		}
-	}
-
 	var total int
-	switch sizeName {
-	case "300 ml":
+	switch acai.SizeID {
+	case "bottle-300":
 		if !bottle.Available300 {
 			return 0, ErrInvalidInput
 		}
 		total = bottle.Price300Cents
-	case "500 ml":
+	case "bottle-500":
 		if !bottle.Available500 {
 			return 0, ErrInvalidInput
 		}

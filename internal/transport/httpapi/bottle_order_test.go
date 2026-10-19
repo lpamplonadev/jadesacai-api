@@ -11,7 +11,7 @@ import (
 )
 
 func bottleOrderRequest(extraID string) string {
-	return `{"customer":{"name":"Ana Silva","phone":"21999990000"},"acai":{"flavorId":"banana","sizeId":"size-300","bottleId":"bottle-acai","toppingIds":[],"sauceId":"none","condimentPositionId":"bottom","fruitIds":[],"extraIds":["` + extraID + `"]},"delivery":{"postalCode":"21770-000","street":"Rua Jade","number":"10","neighborhood":"Realengo"},"payment":{"method":"pix"},"estimatedTotalCents":1800}`
+	return `{"customer":{"name":"Ana Silva","phone":"21999990000"},"acai":{"flavorId":"banana","sizeId":"bottle-300","bottleId":"bottle-acai","toppingIds":[],"sauceId":"none","condimentPositionId":"bottom","fruitIds":[],"extraIds":["` + extraID + `"]},"delivery":{"postalCode":"21770-000","street":"Rua Jade","number":"10","neighborhood":"Realengo"},"payment":{"method":"pix"},"estimatedTotalCents":1800}`
 }
 
 func newBottleOrderStore(enabled, extraEnabled bool) *testOrderStore {
@@ -38,9 +38,6 @@ func newBottleOrderStore(enabled, extraEnabled bool) *testOrderStore {
 func TestCreateBottleOrderAllowsOnlyEnabledBottleAndExtras(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newBottleOrderStore(true, true)
-	store.catalog.Items = []catalogItemRecord{{
-		ID: "size-300", Kind: string(domain.CatalogSize), Name: "300 ml", Available: true,
-	}}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(bottleOrderRequest("leite-condensado")))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -75,9 +72,6 @@ func TestCreateBottleOrderUsesConfiguredProductPrice(t *testing.T) {
 			},
 		},
 	}
-	store.catalog.Items = []catalogItemRecord{{
-		ID: "size-300", Kind: string(domain.CatalogSize), Name: "300 ml", Available: true,
-	}}
 	requestBody := strings.Replace(
 		bottleOrderRequest("leite-condensado"),
 		`"bottleId":"bottle-acai"`,
@@ -105,13 +99,10 @@ func TestCreateBottleOrderRejectsUnavailableSize(t *testing.T) {
 		ID: "bottle-300-only", Name: "Garrafa 300 ml", Enabled: true,
 		Available300: true, Price300Cents: 1800,
 	}}
-	store.catalog.Items = []catalogItemRecord{{
-		ID: "size-500", Kind: string(domain.CatalogSize), Name: "500 ml", Available: true,
-	}}
 	requestBody := strings.Replace(
 		bottleOrderRequest("leite-condensado"),
-		`"sizeId":"size-300"`,
-		`"sizeId":"size-500"`,
+		`"sizeId":"bottle-300"`,
+		`"sizeId":"bottle-500"`,
 		1,
 	)
 	requestBody = strings.Replace(
