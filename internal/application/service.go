@@ -177,7 +177,10 @@ func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSett
 	sizeName := ""
 	for _, item := range catalogItems {
 		if item.ID == acai.SizeID && item.Kind == string(domain.CatalogSize) && item.Available && item.DeletedAt == nil {
-			sizeName = strings.ToLower(strings.TrimSpace(item.Name))
+			sizeName = strings.ToLower(strings.Join(strings.Fields(item.Name), " "))
+			if sizeName == "300ml" || sizeName == "500ml" {
+				sizeName = sizeName[:3] + " ml"
+			}
 			break
 		}
 	}
