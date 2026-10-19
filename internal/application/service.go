@@ -147,8 +147,8 @@ func validateBottleOrder(acai OrderAcai, settings domain.BottleCatalogSettings) 
 		return ErrInvalidInput
 	}
 
-	availableExtras := make(map[string]struct{}, len(settings.Extras))
-	for _, extra := range settings.Extras {
+	availableExtras := make(map[string]struct{}, len(bottle.Extras))
+	for _, extra := range bottle.Extras {
 		if extra.Enabled {
 			availableExtras[extra.Key] = struct{}{}
 		}
@@ -185,15 +185,21 @@ func calculateBottleOrderPrice(acai OrderAcai, settings domain.BottleCatalogSett
 	var total int
 	switch sizeName {
 	case "300 ml":
+		if !bottle.Available300 {
+			return 0, ErrInvalidInput
+		}
 		total = bottle.Price300Cents
 	case "500 ml":
+		if !bottle.Available500 {
+			return 0, ErrInvalidInput
+		}
 		total = bottle.Price500Cents
 	default:
 		return 0, ErrInvalidInput
 	}
 
 	for _, extraID := range acai.ExtraIDs {
-		for _, extra := range settings.Extras {
+		for _, extra := range bottle.Extras {
 			if extra.Key == extraID && extra.Enabled {
 				total += extra.PriceCents
 				break
@@ -211,6 +217,7 @@ func (service *Service) StoreSettings(ctx context.Context) (domain.StoreSettings
 	if settings.BottleCatalog.Extras == nil {
 		settings.BottleCatalog = domain.DefaultStoreSettings().BottleCatalog
 	}
+	settings.BottleCatalog.Bottles = domain.BottleProducts(settings.BottleCatalog)
 	if err := domain.ValidateStoreSettings(settings); err != nil {
 		return domain.StoreSettings{}, err
 	}
@@ -240,6 +247,7 @@ func (service *Service) UpdateStoreSettings(ctx context.Context, settings domain
 		}
 		settings.BottleCatalog = current.BottleCatalog
 	}
+	settings.BottleCatalog.Bottles = domain.BottleProducts(settings.BottleCatalog)
 	if err := domain.ValidateStoreSettings(settings); err != nil {
 		return err
 	}

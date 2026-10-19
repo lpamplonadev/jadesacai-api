@@ -65,7 +65,15 @@ func TestCreateBottleOrderUsesConfiguredProductPrice(t *testing.T) {
 	store.settings.BottleCatalog.Price300Cents = 0
 	store.settings.BottleCatalog.Price500Cents = 0
 	store.settings.BottleCatalog.Bottles = []domain.BottleProductSetting{
-		{ID: "bottle-morango", Name: "Morango na Garrafa", Enabled: true, Price300Cents: 2100, Price500Cents: 2900},
+		{
+			ID: "bottle-morango", Name: "Morango na Garrafa", Enabled: true,
+			Available300: true, Available500: true, Price300Cents: 2100, Price500Cents: 2900,
+			Extras: []domain.BottleExtraSetting{
+				{Key: "leite-condensado", Name: "Leite condensado", PriceCents: 400, Enabled: true},
+				{Key: "doce-de-leite", Name: "Doce de leite", Enabled: false},
+				{Key: "creme-de-avela", Name: "Creme de avelã", Enabled: false},
+			},
+		},
 	}
 	store.catalog.Items = []catalogItemRecord{{
 		ID: "size-300", Kind: string(domain.CatalogSize), Name: "300 ml", Available: true,
@@ -85,8 +93,41 @@ func TestCreateBottleOrderUsesConfiguredProductPrice(t *testing.T) {
 	if response.Code != http.StatusAccepted || !store.called {
 		t.Fatalf("expected configured bottle product to be accepted, got status %d: %s", response.Code, response.Body.String())
 	}
-	if store.order.EstimatedTotalCents != 2650 {
-		t.Fatalf("expected selected bottle price + extra + delivery fee to equal 2650 cents, got %d", store.order.EstimatedTotalCents)
+	if store.order.EstimatedTotalCents != 2800 {
+		t.Fatalf("expected product-specific bottle price + extra + delivery fee to equal 2800 cents, got %d", store.order.EstimatedTotalCents)
+	}
+}
+
+func TestCreateBottleOrderRejectsUnavailableSize(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newBottleOrderStore(true, true)
+	store.settings.BottleCatalog.Bottles = []domain.BottleProductSetting{{
+		ID: "bottle-300-only", Name: "Garrafa 300 ml", Enabled: true,
+		Available300: true, Price300Cents: 1800,
+	}}
+	store.catalog.Items = []catalogItemRecord{{
+		ID: "size-500", Kind: string(domain.CatalogSize), Name: "500 ml", Available: true,
+	}}
+	requestBody := strings.Replace(
+		bottleOrderRequest("leite-condensado"),
+		`"sizeId":"size-300"`,
+		`"sizeId":"size-500"`,
+		1,
+	)
+	requestBody = strings.Replace(
+		requestBody,
+		`"bottleId":"bottle-acai"`,
+		`"bottleId":"bottle-300-only"`,
+		1,
+	)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(requestBody))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	newRouter(store).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest || store.called {
+		t.Fatalf("expected unavailable bottle size to be rejected before persistence, got status %d", response.Code)
 	}
 }
 

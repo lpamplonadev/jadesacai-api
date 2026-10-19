@@ -42,11 +42,16 @@ type BottleExtraSetting struct {
 }
 
 type BottleProductSetting struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Enabled       bool   `json:"enabled"`
-	Price300Cents int    `json:"price300Cents"`
-	Price500Cents int    `json:"price500Cents"`
+	ID            string               `json:"id"`
+	Name          string               `json:"name"`
+	ImageURL      string               `json:"imageUrl"`
+	ImageAlt      string               `json:"imageAlt"`
+	Enabled       bool                 `json:"enabled"`
+	Available300  bool                 `json:"available300"`
+	Available500  bool                 `json:"available500"`
+	Price300Cents int                  `json:"price300Cents"`
+	Price500Cents int                  `json:"price500Cents"`
+	Extras        []BottleExtraSetting `json:"extras,omitempty"`
 }
 
 type BottleCatalogSettings struct {
@@ -115,15 +120,28 @@ func FindDeliveryZone(settings StoreSettings, neighborhood string) (DeliveryZone
 
 func BottleProducts(settings BottleCatalogSettings) []BottleProductSetting {
 	if len(settings.Bottles) > 0 {
-		return settings.Bottles
+		products := append([]BottleProductSetting(nil), settings.Bottles...)
+		for index := range products {
+			if !products[index].Available300 && !products[index].Available500 {
+				products[index].Available300 = products[index].Price300Cents > 0
+				products[index].Available500 = products[index].Price500Cents > 0
+			}
+			if len(products[index].Extras) == 0 {
+				products[index].Extras = append([]BottleExtraSetting(nil), settings.Extras...)
+			}
+		}
+		return products
 	}
 	if settings.Enabled || settings.Price300Cents > 0 || settings.Price500Cents > 0 {
 		return []BottleProductSetting{{
 			ID:            "bottle-acai",
 			Name:          "Açaí na Garrafa",
 			Enabled:       settings.Enabled,
+			Available300:  settings.Price300Cents > 0,
+			Available500:  settings.Price500Cents > 0,
 			Price300Cents: settings.Price300Cents,
 			Price500Cents: settings.Price500Cents,
+			Extras:        append([]BottleExtraSetting(nil), settings.Extras...),
 		}}
 	}
 	return []BottleProductSetting{}
@@ -185,14 +203,30 @@ func ValidateStoreSettings(settings StoreSettings) error {
 	for _, bottle := range settings.BottleCatalog.Bottles {
 		id := strings.TrimSpace(bottle.ID)
 		if id == "" || len(id) > 100 || strings.TrimSpace(bottle.Name) == "" || len(bottle.Name) > 80 ||
+			len(bottle.ImageURL) > 500 || len(bottle.ImageAlt) > 180 ||
 			bottle.Price300Cents < 0 || bottle.Price300Cents > 100_000 || bottle.Price500Cents < 0 || bottle.Price500Cents > 100_000 ||
-			(bottle.Enabled && (bottle.Price300Cents == 0 || bottle.Price500Cents == 0)) {
+			(!bottle.Available300 && !bottle.Available500) ||
+			(bottle.Available300 && bottle.Price300Cents == 0) || (bottle.Available500 && bottle.Price500Cents == 0) {
 			return ErrInvalidStoreSettings
 		}
 		if _, exists := bottleIDs[id]; exists {
 			return ErrInvalidStoreSettings
 		}
 		bottleIDs[id] = struct{}{}
+		if len(bottle.Extras) != 0 && len(bottle.Extras) != 3 {
+			return ErrInvalidStoreSettings
+		}
+		bottleExtraKeys := make(map[string]struct{}, len(bottle.Extras))
+		for _, extra := range bottle.Extras {
+			key := strings.TrimSpace(extra.Key)
+			if key == "" || strings.TrimSpace(extra.Name) == "" || len(extra.Name) > 80 || extra.PriceCents < 0 || extra.PriceCents > 100_000 {
+				return ErrInvalidStoreSettings
+			}
+			if _, exists := bottleExtraKeys[key]; exists {
+				return ErrInvalidStoreSettings
+			}
+			bottleExtraKeys[key] = struct{}{}
+		}
 	}
 	bottleExtraKeys := make(map[string]struct{}, len(settings.BottleCatalog.Extras))
 	for _, extra := range settings.BottleCatalog.Extras {
